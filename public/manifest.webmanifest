@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "코드 레시피 키친",
+  "short_name": "코드 키친",
+  "description": "음을 재료로 쌓아 배우는 따뜻한 음악 주방",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff5df",
+  "theme_color": "#2f766e",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

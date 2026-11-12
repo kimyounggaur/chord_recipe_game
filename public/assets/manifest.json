@@ -1,0 +1,44 @@
+[
+  {
+    "id": "kitchen",
+    "src": "/assets/kitchen.png",
+    "source": "사용자 요청으로 이 대화에서 생성한 원본 이미지",
+    "original": "햇살 가득한 청록빛 주방.png"
+  },
+  {
+    "id": "chef",
+    "src": "/assets/chef.png",
+    "source": "사용자 요청으로 이 대화에서 생성한 원본 이미지",
+    "original": "명랑한 셰프 네 가지 포즈.png"
+  },
+  {
+    "id": "tokens",
+    "src": "/assets/tokens.png",
+    "source": "사용자 요청으로 이 대화에서 생성한 원본 이미지",
+    "original": "음악 학습용 다채로운 도자기 토큰.png"
+  },
+  {
+    "id": "ui",
+    "src": "/assets/ui.png",
+    "source": "사용자 요청으로 이 대화에서 생성한 원본 이미지",
+    "original": "따뜻한 주방 UI 스프라이트 아틀라스.png"
+  },
+  {
+    "id": "props",
+    "src": "/assets/props.png",
+    "source": "사용자 요청으로 이 대화에서 생성한 원본 이미지",
+    "original": "코드 레시피 키친 소품 아틀라스.png"
+  },
+  {
+    "id": "guide1",
+    "src": "/assets/guide1.png",
+    "source": "사용자 제공 원본 삽화",
+    "original": "01-41088.png"
+  },
+  {
+    "id": "guide2",
+    "src": "/assets/guide2.png",
+    "source": "사용자 제공 원본 삽화",
+    "original": "02-41089.png"
+  }
+]
