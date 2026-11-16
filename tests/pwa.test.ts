@@ -5,8 +5,8 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://chord-kitchen.test';
-const SHELL = 'chord-recipe-kitchen-shell-v1.0.0';
-const RUNTIME = 'chord-recipe-kitchen-assets-v1.0.0';
+const SHELL = 'chord-recipe-kitchen-shell-v1.1.0';
+const RUNTIME = 'chord-recipe-kitchen-assets-v1.1.0';
 
 type RequestLike = { url: string; method: string; mode: string };
 type CacheKey = string | { url: string };
@@ -130,6 +130,23 @@ test('PWA runtime caches viewed artwork and reuses it offline', async () => {
   worker.setOffline(true);
   const offline = await worker.request('/assets/kitchen.png');
   assert.equal(await offline!.text(), 'PNG image fixture');
+});
+
+test('offline lookup uses only the current worker caches when old or unrelated caches contain the same URL', async () => {
+  const worker = workerFixture();
+  const other = await worker.caches.open('another-music-app-v1');
+  await other.put('/index.html', new Response('unrelated app'));
+  await other.put('/assets/kitchen.png', new Response('unrelated artwork'));
+  const old = await worker.caches.open('chord-recipe-kitchen-shell-v1.0.0');
+  await old.put('/index.html', new Response('previous app shell'));
+  await old.put('/assets/kitchen.png', new Response('previous artwork'));
+  await worker.lifecycle('install');
+  assert.equal(await (await worker.request('/assets/kitchen.png'))!.text(), 'PNG image fixture');
+  worker.setOffline(true);
+  const document = await worker.request('/lesson/L01', { mode: 'navigate' });
+  assert.match(await document!.text(), /app-a1\.js/);
+  const image = await worker.request('/assets/kitchen.png');
+  assert.equal(await image!.text(), 'PNG image fixture');
 });
 
 test('PWA waits for explicit update action and removes only this app older caches', async () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, reducer, isCorrect, target, displayedNotes, lessonFor, shuffled, mixedIds } from '../src/game.ts';
+import { startGame, reducer, isCorrect, target, displayedNotes, lessonFor, shuffled, mixedIds, getActionPolicy } from '../src/game.ts';
 import { LESSONS } from '../src/lessons.ts';
 
 test('guided C major input keeps prior correct notes after an error', () => {
@@ -101,8 +101,10 @@ test('general order needs exact MIDI including octave and retains selected notes
 test('transform orders preserve root and fifth while middle note is editable', () => {
   const base = startGame('order', 'L05');
   for (const slot of [0, 2]) {
-    let s = reducer(base, { type: 'SELECT', slot });
-    s = reducer(s, { type: 'SHIFT', delta: 1 });
+    const selected = reducer(base, { type: 'SELECT', slot });
+    assert.equal(selected.active, 1);
+    assert.match(selected.feedback, /가운데 음/);
+    const s = reducer({ ...base, active: slot }, { type: 'SHIFT', delta: 1 });
     assert.deepEqual(s.notes, base.notes);
   }
   let s = reducer(base, { type: 'SELECT', slot: 1 });
@@ -113,7 +115,10 @@ test('transform orders preserve root and fifth while middle note is editable', (
 
 test('repair locks root but keeps both upper slots editable and requires all repairs', () => {
   let s = startGame('repair', 'L24');
-  const root = reducer(reducer(s, { type: 'SELECT', slot: 0 }), { type: 'SHIFT', delta: 1 });
+  const selected = reducer(s, { type: 'SELECT', slot: 0 });
+  assert.equal(selected.active, 1);
+  assert.match(selected.feedback, /근음/);
+  const root = reducer({ ...s, active: 0 }, { type: 'SHIFT', delta: 1 });
   assert.deepEqual(root.notes, s.notes);
   s = reducer(s, { type: 'SELECT', slot: 1 });
   s = reducer(s, { type: 'SHIFT', delta: -1 });
@@ -209,4 +214,94 @@ test('resume clamps mixed index and tutorial checkpoint to supported ranges', ()
   const end = startGame('tutorial', 'L01', 100);
   assert.equal(end.step, 13);
   assert.equal(end.complete, true);
+});
+
+test('after filling all three notes, an extra note edits the selected slot instead of the root', () => {
+  let s = startGame('order', 'L01');
+  for (const midi of [60, 64, 67]) s = reducer(s, { type: 'TRY', midi });
+  assert.deepEqual(s.notes, [60, 64, 67]);
+  assert.equal(s.active, 2);
+  s = reducer(s, { type: 'TRY', midi: 69 });
+  assert.deepEqual(s.notes, [60, 64, 69]);
+  s = reducer(s, { type: 'SELECT', slot: 1 });
+  s = reducer(s, { type: 'TRY', midi: 63 });
+  assert.deepEqual(s.notes, [60, 63, 69]);
+  assert.equal(s.active, 1);
+  s = reducer(s, { type: 'UNDO' });
+  assert.deepEqual(s.notes, [60, 64, 69]);
+});
+
+test('interaction policy exposes only the allowed tutorial and locked lesson inputs', () => {
+  for (let step = 1; step <= 13; step++) {
+    const s = startGame('tutorial', 'L01', step);
+    const expected: Record<number, number> = {2:0,3:1,4:2,8:1};
+    const slots = expected[step] === undefined ? [] : [expected[step]];
+    assert.deepEqual(getActionPolicy(s).editableSlots, slots, `step ${step}`);
+    assert.equal(getActionPolicy(s).canInput, slots.includes(s.active));
+  }
+  const transform = startGame('order', 'L05');
+  assert.deepEqual(getActionPolicy(transform).editableSlots, [1]);
+  const lockedRoot = {...startGame('repair', 'L24'), active: 0};
+  assert.equal(getActionPolicy(lockedRoot).canInput, false);
+  assert.deepEqual(getActionPolicy(lockedRoot).editableSlots, [1,2]);
+  assert.deepEqual(getActionPolicy(startGame('order', 'L03')).editableSlots, []);
+  assert.deepEqual(getActionPolicy(startGame('practice')).editableSlots, [0,1,2]);
+});
+
+test('stale double-queued tutorial next action does not skip the following step', () => {
+  let s = startGame('tutorial', 'L01', 6);
+  const next = { type: 'NEXT_STEP', expectedStep: 6 } as const;
+  s = reducer(s, next);
+  assert.equal(s.step, 7);
+  s = reducer(s, next);
+  assert.equal(s.step, 7);
+  s = reducer(s, {type:'NEXT_STEP', expectedStep:7});
+  assert.equal(s.step, 8);
+});
+
+test('selecting a locked slot preserves active editable slot and explains why', () => {
+  const s = startGame('order', 'L05');
+  const locked = reducer(s, {type:'SELECT',slot:0});
+  assert.equal(locked.active,s.active);
+  assert.equal(getActionPolicy(locked).canInput,true);
+  assert.match(locked.feedback,/가운데 음/);
+  const completed = {...startGame('order','L01'),complete:true};
+  const rejected = reducer(completed,{type:'SELECT',slot:2});
+  assert.equal(rejected.active,completed.active);
+  assert.equal(getActionPolicy(rejected).canInput,false);
+  assert.match(rejected.feedback,/완성/);
+});
+
+test('interaction policy reflects review, comparison and required explanation gates', () => {
+  let s = startGame('tutorial', 'L01', 5);
+  assert.equal(getActionPolicy(s).canAdvance, false);
+  s = reducer(s, { type: 'LISTEN', kind: 'sequence' });
+  assert.equal(getActionPolicy(s).canAdvance, false);
+  s = reducer(s, { type: 'LISTEN', kind: 'chord' });
+  assert.equal(getActionPolicy(s).canAdvance, true);
+  let comparison = startGame('order', 'L03');
+  assert.equal(getActionPolicy(comparison).canSubmit, false);
+  comparison = reducer(comparison, { type: 'VISUAL' });
+  assert.equal(getActionPolicy(comparison).canSubmit, true);
+  let question = startGame('tutorial', 'L01', 11);
+  assert.equal(getActionPolicy(question).canAdvance, false);
+  question = reducer(question, { type: 'ANSWER', correct: true });
+  assert.equal(getActionPolicy(question).canAdvance, true);
+});
+
+test('undo and reset keep hint history within an attempt; retry starts a fresh attempt', () => {
+  let s = startGame('order', 'L04');
+  s = reducer(s, { type: 'HINT' });
+  s = reducer(s, { type: 'HINT' });
+  s = reducer(s, { type: 'TRY', midi: 62 });
+  s = {...s, attempts: 2};
+  const undone = reducer(s, { type: 'UNDO' });
+  assert.equal(undone.maxHint, 3);
+  assert.equal(undone.attempts, 2);
+  const reset = reducer(undone, { type: 'RESET' });
+  assert.equal(reset.maxHint, 3);
+  assert.equal(reset.attempts, 2);
+  const retry = startGame('order', 'L04');
+  assert.equal(retry.maxHint, 2);
+  assert.equal(retry.attempts, 0);
 });

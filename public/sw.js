@@ -1,9 +1,16 @@
 /* App-owned caches only. New workers wait for an explicit update action. */
 const PREFIX = 'chord-recipe-kitchen-';
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const SHELL = `${PREFIX}shell-${VERSION}`;
 const RUNTIME = `${PREFIX}assets-${VERSION}`;
 const CORE = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+
+// Cache Storage is shared by the whole origin, including older waiting workers
+// and unrelated applications. Only serve files owned by this worker's version.
+async function matchAppCache(request) {
+  return (await (await caches.open(SHELL)).match(request)) ||
+    (await (await caches.open(RUNTIME)).match(request));
+}
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -56,14 +63,14 @@ self.addEventListener('fetch', event => {
         const response = await fetch(request);
         // Do not replace this worker's matching app shell with a later build's HTML.
         if (response.ok) return response;
-        return (await caches.match('/index.html')) || response;
-      } catch { return (await caches.match('/index.html')) || new Response('처음 온라인 연결 후 오프라인 학습을 사용할 수 있어요.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+        return (await (await caches.open(SHELL)).match('/index.html')) || response;
+      } catch { return (await (await caches.open(SHELL)).match('/index.html')) || new Response('처음 온라인 연결 후 오프라인 학습을 사용할 수 있어요.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
     })());
     return;
   }
   if (!/\.(?:js|css|png|webp|jpg|jpeg|svg|woff2?|webmanifest)$/.test(url.pathname)) return;
   event.respondWith((async () => {
-    const cached = await caches.match(request);
+    const cached = await matchAppCache(request);
     if (cached) return cached;
     try {
       const response = await fetch(request);
