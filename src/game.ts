@@ -14,6 +14,39 @@ export function lessonFor(s:GameState):Lesson {const l=LESSONS.find(l=>l.id===s.
 export function shuffled(seed:number){return mixedIds.map((x,i)=>({x,v:((seed*(i+3)*9301+49297)%233280)})).sort((a,b)=>a.v-b.v).map(x=>x.x);}
 export function target(s:GameState){return makeTriad(s.root,s.quality);}
 export function isCorrect(s:GameState){return target(s).every((n,i)=>n.midi===s.notes[i]);}
+/** Shared interaction policy: rendering and reducer guards must agree. */
+export interface GameActionPolicy {
+ editableSlots: number[];
+ canInput: boolean;
+ canUndo: boolean;
+ canSubmit: boolean;
+ canAdvance: boolean;
+}
+export function getActionPolicy(s:GameState):GameActionPolicy {
+ let editableSlots:number[]=[];
+ const lesson=lessonFor(s);
+ if(!s.complete || s.mode==='practice'){
+  if(s.mode==='tutorial'){
+   const slot=tutorialSlot(s.step);
+   if(slot!==undefined)editableSlots=[slot];
+  }else if(s.mode==='practice')editableSlots=[0,1,2];
+  else if(lesson.kind==='compare')editableSlots=[];
+  else if(lesson.kind==='transform')editableSlots=[1];
+  else if(s.mode==='repair')editableSlots=[1,2];
+  else editableSlots=[0,1,2];
+ }
+ const reviewReady=s.visual||(s.sequenceHeard&&s.chordHeard);
+ const comparisonReady=s.visual||(s.audioA&&s.audioB);
+ const canAdvance=s.mode==='tutorial' && (
+  [1,6,7,12].includes(s.step) ||
+  ([5,9].includes(s.step)&&reviewReady) ||
+  (s.step===10&&comparisonReady) ||
+  (s.step===11&&s.explained)
+ );
+ const canSubmit=s.mode!=='tutorial'&&s.mode!=='practice'&&!s.complete&&
+  (lesson.kind==='compare'?comparisonReady:s.notes.every(note=>note!==null));
+ return {editableSlots,canInput:editableSlots.includes(s.active),canUndo:s.mode!=='tutorial'&&s.history.length>0,canSubmit,canAdvance};
+}
 export function startGame(mode:Mode,id='L01',step=1,seed=17,index=0):GameState {
  const main=LESSONS.find(l=>l.id===id)||LESSONS[0];
  const safeSeed=Number.isInteger(seed)&&seed>=0?seed:17;
@@ -24,7 +57,7 @@ export function startGame(mode:Mode,id='L01',step=1,seed=17,index=0):GameState {
  if(mode==='tutorial')notes=safeStep<3?[null,null,null]:safeStep===3?[60,null,null]:safeStep===4?[60,64,null]:safeStep<=8?[60,64,67]:[60,63,67];
  return {mode,lessonId:main.id,root:mode==='tutorial'?'C':l.root,quality:mode==='tutorial'&&safeStep<7?'major':mode==='tutorial'?'minor':l.quality,notes,before:l.initial?[...l.initial] as Notes:[60,64,67],active:mode==='tutorial'?(tutorialSlot(safeStep)??1):l.initial?1:0,step:safeStep,hint:l.hint,maxHint:l.hint,attempts:0,explained:false,complete:mode==='tutorial'&&safeStep===13,feedback:'재료를 골라 소리의 레시피를 완성해요.',kind:'info',sequenceHeard:false,chordHeard:false,audioA:false,audioB:false,visual:false,questionIndex:safeIndex,mixedDone:[],seed:safeSeed,history:[]};
 }
-export type Action={type:'START';state:GameState}|{type:'SELECT';slot:number}|{type:'TRY';midi:number}|{type:'SHIFT';delta:number}|{type:'DELETE'}|{type:'UNDO'}|{type:'RESET'}|{type:'HINT'}|{type:'SUBMIT'}|{type:'NEXT_STEP'}|{type:'LISTEN';kind:'sequence'|'chord'|'a'|'b'}|{type:'VISUAL'}|{type:'ANSWER';correct:boolean}|{type:'FEEDBACK';text:string;kind?:GameState['kind']}|{type:'CONFIG';root:string;quality:Quality}|{type:'FILL'}|{type:'SNAPSHOT'};
+export type Action={type:'START';state:GameState}|{type:'SELECT';slot:number}|{type:'TRY';midi:number}|{type:'SHIFT';delta:number}|{type:'DELETE'}|{type:'UNDO'}|{type:'RESET'}|{type:'HINT'}|{type:'SUBMIT'}|{type:'NEXT_STEP';expectedStep?:number}|{type:'LISTEN';kind:'sequence'|'chord'|'a'|'b'}|{type:'VISUAL'}|{type:'ANSWER';correct:boolean}|{type:'FEEDBACK';text:string;kind?:GameState['kind']}|{type:'CONFIG';root:string;quality:Quality}|{type:'FILL'}|{type:'SNAPSHOT'};
 export function reducer(s:GameState,a:Action):GameState {
 if(a.type==='START')return a.state;
 if(a.type==='FEEDBACK')return {...s,feedback:a.text,kind:a.kind||'info'};
@@ -35,6 +68,10 @@ if(a.type==='SELECT'){
   if(required===undefined)return s;
   if(a.slot!==required)return {...s,feedback:s.step===8?'C와 G는 그대로 두고 가운데 음만 바꿔요.':'지금 안내된 재료 칸부터 완성해요.'};
  }
+ if(s.mode!=='tutorial'&&!getActionPolicy(s).editableSlots.includes(a.slot)){
+  const l=lessonFor(s);
+  return {...s,feedback:s.complete?'이미 완성한 주문이에요. 다시 도전에서 수정할 수 있어요.':l.kind==='transform'?'근음과 맨 위 음은 두고 가운데 음만 바꿔요.':s.mode==='repair'?'이번 주문의 근음은 그대로 유지해요.':'지금은 음을 바꿀 수 없어요.',kind:'info'};
+ }
  return {...s,active:a.slot};
 }
 if(a.type==='TRY'||a.type==='SHIFT'||a.type==='DELETE'){
@@ -42,21 +79,23 @@ if(a.type==='TRY'||a.type==='SHIFT'||a.type==='DELETE'){
  if(s.mode==='tutorial'&&![2,3,4,8].includes(s.step))return s;
  if(!Number.isInteger(s.active)||s.active<0||s.active>2)return s;
  if(s.mode==='tutorial'&&s.active!==tutorialSlot(s.step))return s;
- const l=lessonFor(s);if((s.mode==='repair'&&s.active===0)||(l.kind==='transform'&&s.active!==1))return {...s,feedback:l.kind==='transform'?'근음과 맨 위 음은 두고 가운데 음만 바꿔요.':'이번 주문의 근음은 그대로 유지해요.',kind:'info'};
+ const l=lessonFor(s);if(!getActionPolicy(s).canInput)return {...s,feedback:l.kind==='transform'?'근음과 맨 위 음은 두고 가운데 음만 바꿔요.':s.mode==='repair'?'이번 주문의 근음은 그대로 유지해요.':'지금은 음을 바꿀 수 없어요.',kind:'info'};
  const n=a.type==='TRY'?a.midi:a.type==='SHIFT'?(s.notes[s.active]??target(s)[s.active].midi)+a.delta:null;
  if(n!==null&&(!Number.isInteger(n)||n<60||n>83))return {...s,feedback:'C4부터 B5 사이의 건반을 골라 주세요.',kind:'retry'};
  if(s.mode==='tutorial'&&n!==target(s)[s.active].midi){const base=s.active===0?60:(s.notes[s.active-1]??60);const want=target(s)[s.active].midi-base;return {...s,attempts:s.attempts+1,kind:'retry',feedback:s.active===0?'이번 기준음은 C4예요.':`출발 음에서 ${n===null?'?':n-base}반음 이동했어요. 이번에는 위로 ${want}반음이 필요해요.`};}
  const notes=[...s.notes] as Notes;notes[s.active]=n;const step=s.mode==='tutorial'?s.step+1:s.step;
- const active=s.mode==='tutorial'?(tutorialSlot(step)??1):l.kind==='transform'?1:Math.max(0,notes.findIndex(n=>n===null));
- return {...s,notes,active,step,history:[...s.history,s.notes],feedback:s.mode==='tutorial'?'좋아요! 다음 재료를 확인해요.':'재료가 놓였어요. 음정과 소리를 확인해요.',kind:'info',sequenceHeard:false,chordHeard:false,audioA:false,audioB:false,visual:false};
+ const nextEmpty=notes.findIndex(n=>n===null);
+ const active=s.mode==='tutorial'?(tutorialSlot(step)??1):s.mode!=='practice'&&l.kind==='transform'?1:nextEmpty>=0?nextEmpty:s.active;
+ return {...s,notes,active,step,history:[...s.history,s.notes],feedback:s.mode==='tutorial'?'좋아요! 다음 재료를 확인해요.':nextEmpty<0?'세 음이 모였어요. 소리와 간격을 확인해요.':'재료가 놓였어요. 음정과 소리를 확인해요.',kind:'info',explained:false,sequenceHeard:false,chordHeard:false,audioA:false,audioB:false,visual:false};
 }
-if(a.type==='UNDO'){if(!s.history.length||s.mode==='tutorial')return s;return {...s,notes:s.history[s.history.length-1],history:s.history.slice(0,-1),complete:false,sequenceHeard:false,chordHeard:false,audioA:false,audioB:false,visual:false};}
+if(a.type==='UNDO'){if(!s.history.length||s.mode==='tutorial')return s;return {...s,notes:s.history[s.history.length-1],history:s.history.slice(0,-1),complete:false,explained:false,sequenceHeard:false,chordHeard:false,audioA:false,audioB:false,visual:false};}
 if(a.type==='RESET'){const reset=s.mode==='tutorial'?startGame('tutorial'):{...startGame(s.mode,s.lessonId,1,s.seed,s.questionIndex),root:s.root,quality:s.quality};return {...reset,hint:s.hint,maxHint:Math.max(reset.maxHint,s.maxHint),attempts:s.attempts};}
 if(a.type==='HINT')return {...s,hint:Math.min(s.hint+1,3),maxHint:Math.max(s.maxHint,Math.min(s.hint+1,3))};
 if(a.type==='LISTEN')return {...s,sequenceHeard:s.sequenceHeard||a.kind==='sequence',chordHeard:s.chordHeard||a.kind==='chord',audioA:s.audioA||a.kind==='a',audioB:s.audioB||a.kind==='b'};
 if(a.type==='VISUAL')return {...s,visual:true,feedback:'구성음과 두 간격을 그림으로 비교했어요.',kind:'success'};
 if(a.type==='ANSWER')return {...s,explained:s.explained||a.correct,feedback:a.correct?'맞아요! 음 사이의 관계를 잘 찾았어요.':'간격 표시를 다시 살펴보세요. 다시 풀어도 좋아요.',kind:a.correct?'success':'retry'};
 if(a.type==='NEXT_STEP'){
+ if(a.expectedStep!==undefined&&a.expectedStep!==s.step)return s;
  if(s.mode!=='tutorial'||![1,5,6,7,9,10,11,12].includes(s.step))return s;
  if((s.step===5||s.step===9)&&!(s.sequenceHeard&&s.chordHeard)&&!s.visual)return {...s,feedback:'차례로 듣기와 함께 듣기를 완료하거나 그림으로 확인해요.',kind:'retry'};
  if(s.step===10&&!(s.audioA&&s.audioB)&&!s.visual)return {...s,feedback:'두 코드를 모두 듣거나 그림 비교를 확인해요.',kind:'retry'};
