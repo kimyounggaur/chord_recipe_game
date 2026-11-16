@@ -5,8 +5,8 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://chord-kitchen.test';
-const SHELL = 'chord-recipe-kitchen-shell-v1.1.0';
-const RUNTIME = 'chord-recipe-kitchen-assets-v1.1.0';
+const SHELL = 'chord-recipe-kitchen-shell-v1.2.0';
+const RUNTIME = 'chord-recipe-kitchen-assets-v1.2.0';
 
 type RequestLike = { url: string; method: string; mode: string };
 type CacheKey = string | { url: string };

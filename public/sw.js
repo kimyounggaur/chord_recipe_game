@@ -1,6 +1,6 @@
 /* App-owned caches only. New workers wait for an explicit update action. */
 const PREFIX = 'chord-recipe-kitchen-';
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const SHELL = `${PREFIX}shell-${VERSION}`;
 const RUNTIME = `${PREFIX}assets-${VERSION}`;
 const CORE = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
