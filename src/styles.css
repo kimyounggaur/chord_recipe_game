@@ -265,3 +265,8 @@ summary:focus-visible {
     transition-duration: .01ms!important;
   }
 }
+
+/* Compare the shared tones and the changing third without relying on colour alone. */
+.compare-changed { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.compare-changed small { color: #28685d; font-size: 12px; font-weight: 700; }
+.compare-changed .token { outline: 3px solid #28685d; outline-offset: 2px; border-radius: 50%; }
